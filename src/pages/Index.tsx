@@ -1,64 +1,210 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useToast } from "@/hooks/use-toast";
 import Header from "@/components/Header";
 import ProductCard from "@/components/ProductCard";
 import SupplyChainFlow from "@/components/SupplyChainFlow";
 import StakeholderDashboard from "@/components/StakeholderDashboard";
-import { Shield, Zap, Globe, Lock } from "lucide-react";
+import TransactionModal from "@/components/TransactionModal";
+import VerificationModal from "@/components/VerificationModal";
+import { Shield, Zap, Globe, Lock, Activity, TrendingUp, Package } from "lucide-react";
+import { blockchain, Product, formatHash, getNetworkInfo } from "@/utils/blockchain";
 
 const Index = () => {
+  const { toast } = useToast();
   const [activeRole, setActiveRole] = useState("farmer");
-  const [products, setProducts] = useState([
-    {
-      id: "AGRI-001",
-      name: "Premium Wheat",
-      quantity: 500,
-      basePrice: 25,
-      currentPrice: 32,
-      harvestDate: "2024-08-15",
-      quality: "A" as const,
-      status: "Available for Consumers",
-      farmer: "Rajesh Singh",
-      distributor: "AgriTrans Ltd",
-      retailer: "FreshMart Store",
-      location: "Punjab, India"
-    },
-    {
-      id: "AGRI-002", 
-      name: "Organic Rice",
-      quantity: 300,
-      basePrice: 40,
-      currentPrice: 45,
-      harvestDate: "2024-08-20",
-      quality: "A" as const,
-      status: "In Transit",
-      farmer: "Priya Sharma",
-      distributor: "GreenLogistics",
-      location: "Haryana, India"
-    },
-    {
-      id: "AGRI-003",
-      name: "Fresh Corn",
-      quantity: 200,
-      basePrice: 18,
-      currentPrice: 18,
-      harvestDate: "2024-08-25",
-      quality: "B" as const,
-      status: "Available for Distribution",
-      farmer: "Kumar Patel",
-      location: "Gujarat, India"
-    }
-  ]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [transactionModal, setTransactionModal] = useState<{
+    isOpen: boolean;
+    productId: string;
+    productName: string;
+    action: "transport" | "retail" | "verify";
+  }>({
+    isOpen: false,
+    productId: "",
+    productName: "",
+    action: "transport"
+  });
+  const [verificationModal, setVerificationModal] = useState<{
+    isOpen: boolean;
+    productId: string;
+    productName: string;
+    data: any;
+  }>({
+    isOpen: false,
+    productId: "",
+    productName: "",
+    data: null
+  });
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [blockchainStats, setBlockchainStats] = useState({
+    totalProducts: 0,
+    totalTransactions: 0,
+    totalValue: 0,
+    networkInfo: getNetworkInfo()
+  });
 
-  const handleProductAdd = (newProduct: any) => {
-    setProducts(prev => [newProduct, ...prev]);
+  // Load products on component mount
+  useEffect(() => {
+    loadProducts();
+    updateBlockchainStats();
+  }, []);
+
+  const loadProducts = async () => {
+    setLoading(true);
+    try {
+      const allProducts = await blockchain.getAllProducts();
+      setProducts(allProducts);
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to load products from blockchain",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const updateBlockchainStats = async () => {
+    try {
+      const allProducts = await blockchain.getAllProducts();
+      const allTransactions = await blockchain.getAllTransactions();
+      const totalValue = allProducts.reduce((sum, product) => sum + (product.currentPrice * product.quantity), 0);
+      
+      setBlockchainStats({
+        totalProducts: allProducts.length,
+        totalTransactions: allTransactions.length,
+        totalValue,
+        networkInfo: getNetworkInfo()
+      });
+    } catch (error) {
+      console.error("Failed to update stats:", error);
+    }
+  };
+
+  const handleProductAdd = async (newProductData: any) => {
+    setIsProcessing(true);
+    try {
+      const result = await blockchain.registerProduct({
+        name: newProductData.name,
+        quantity: newProductData.quantity,
+        basePrice: newProductData.basePrice,
+        harvestDate: newProductData.harvestDate,
+        quality: newProductData.quality,
+        farmer: `${newProductData.farmer || 'Current User'} (0x${Math.random().toString(16).substr(2, 8)}...${Math.random().toString(16).substr(2, 4)})`,
+        location: newProductData.location
+      });
+
+      if (result.success) {
+        toast({
+          title: "Product Registered on Blockchain! 🎉",
+          description: `Transaction Hash: ${formatHash(result.transactionHash)}`,
+          duration: 5000,
+        });
+        
+        await loadProducts();
+        await updateBlockchainStats();
+      }
+    } catch (error) {
+      toast({
+        title: "Transaction Failed",
+        description: "Failed to register product on blockchain",
+        variant: "destructive",
+      });
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handleProductAction = (productId: string, action: string) => {
-    // Simulate blockchain transaction
-    console.log(`Action: ${action} on Product: ${productId}`);
+    const product = products.find(p => p.id === productId);
+    if (!product) return;
+
+    if (action === "verify") {
+      setTransactionModal({
+        isOpen: true,
+        productId,
+        productName: product.name,
+        action: "verify"
+      });
+    } else if (action === "transport") {
+      setTransactionModal({
+        isOpen: true,
+        productId,
+        productName: product.name,
+        action: "transport"
+      });
+    } else if (action === "retail") {
+      setTransactionModal({
+        isOpen: true,
+        productId,
+        productName: product.name,
+        action: "retail"
+      });
+    }
+  };
+
+  const handleTransactionSubmit = async (formData: any) => {
+    setIsProcessing(true);
+    try {
+      const { productId, action } = transactionModal;
+      let result;
+
+      if (action === "verify") {
+        const verificationData = await blockchain.verifyProduct(productId);
+        setVerificationModal({
+          isOpen: true,
+          productId,
+          productName: transactionModal.productName,
+          data: verificationData
+        });
+        setTransactionModal({ ...transactionModal, isOpen: false });
+        setIsProcessing(false);
+        return;
+      } else if (action === "transport") {
+        const distributor = `${formData.actorName} (0x${Math.random().toString(16).substr(2, 8)}...${Math.random().toString(16).substr(2, 4)})`;
+        result = await blockchain.updateAsDistributor(
+          productId,
+          distributor,
+          parseFloat(formData.handlingCost),
+          formData.transportDetails
+        );
+      } else if (action === "retail") {
+        const retailer = `${formData.actorName} (0x${Math.random().toString(16).substr(2, 8)}...${Math.random().toString(16).substr(2, 4)})`;
+        result = await blockchain.updateAsRetailer(
+          productId,
+          retailer,
+          parseFloat(formData.retailMargin),
+          formData.storeDetails
+        );
+      }
+
+      if (result?.success) {
+        toast({
+          title: "Transaction Successful! ⛓️",
+          description: `Blockchain updated. Tx: ${formatHash(result.transactionHash)}`,
+          duration: 5000,
+        });
+        
+        await loadProducts();
+        await updateBlockchainStats();
+        setTransactionModal({ ...transactionModal, isOpen: false });
+      } else {
+        throw new Error("Transaction failed");
+      }
+    } catch (error) {
+      toast({
+        title: "Transaction Failed",
+        description: "Failed to update blockchain",
+        variant: "destructive",
+      });
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const features = [
@@ -99,6 +245,17 @@ const Index = () => {
     }
   });
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto"></div>
+          <p className="text-muted-foreground">Loading blockchain data...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <Header activeRole={activeRole} onRoleChange={setActiveRole} />
@@ -124,7 +281,24 @@ const Index = () => {
           </p>
         </div>
 
-        {/* Features Grid */}
+        {/* Blockchain Network Status */}
+        <div className="bg-trust/5 border border-trust/20 rounded-lg p-4 mb-8">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <div className="w-3 h-3 bg-success rounded-full animate-pulse-soft"></div>
+              <div>
+                <h3 className="font-semibold text-foreground">{blockchainStats.networkInfo.name}</h3>
+                <p className="text-sm text-muted-foreground">
+                  Block #{blockchainStats.networkInfo.blockNumber.toLocaleString()} • {blockchainStats.networkInfo.gasPrice}
+                </p>
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="text-sm font-medium text-foreground">{blockchainStats.totalTransactions} Transactions</div>
+              <div className="text-xs text-muted-foreground">₹{blockchainStats.totalValue.toLocaleString()} Total Value</div>
+            </div>
+          </div>
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {features.map((feature, index) => (
             <Card key={index} className="shadow-card hover:shadow-soft transition-smooth text-center">
@@ -196,31 +370,49 @@ const Index = () => {
             
             <Card className="shadow-card">
               <CardHeader>
-                <CardTitle>Blockchain Transaction Log</CardTitle>
+                <CardTitle className="flex items-center space-x-2">
+                  <Activity className="w-5 h-5" />
+                  <span>Live Blockchain Transactions</span>
+                </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {[
-                    { action: "Product Registered", user: "Farmer: Rajesh Singh", time: "2 hours ago", status: "success" },
-                    { action: "Transportation Started", user: "Distributor: AgriTrans Ltd", time: "1 hour ago", status: "pending" },
-                    { action: "Quality Verification", user: "System", time: "30 mins ago", status: "success" },
-                  ].map((log, index) => (
-                    <div key={index} className="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
-                      <div>
-                        <p className="font-medium text-sm">{log.action}</p>
-                        <p className="text-xs text-muted-foreground">{log.user}</p>
+                  {blockchainStats.totalTransactions > 0 ? (
+                    <>
+                      <div className="flex items-center justify-between p-3 bg-success/10 border border-success/20 rounded-lg">
+                        <div>
+                          <p className="font-medium text-sm text-success">Product Registered</p>
+                          <p className="text-xs text-muted-foreground">Latest: {products[0]?.farmer || 'Farmer'}</p>
+                        </div>
+                        <div className="text-right">
+                          <Badge className="bg-success text-success-foreground">Confirmed</Badge>
+                          <p className="text-xs text-muted-foreground mt-1">Block #{blockchainStats.networkInfo.blockNumber}</p>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <Badge 
-                          variant={log.status === "success" ? "default" : "secondary"}
-                          className={log.status === "success" ? "bg-success text-success-foreground" : ""}
-                        >
-                          {log.status}
-                        </Badge>
-                        <p className="text-xs text-muted-foreground mt-1">{log.time}</p>
+                      
+                      <div className="flex items-center justify-between p-3 bg-trust/10 border border-trust/20 rounded-lg">
+                        <div>
+                          <p className="font-medium text-sm text-trust">Supply Chain Update</p>
+                          <p className="text-xs text-muted-foreground">Transport & Quality Verification</p>
+                        </div>
+                        <div className="text-right">
+                          <Badge className="bg-trust text-trust-foreground">Processing</Badge>
+                          <p className="text-xs text-muted-foreground mt-1">Gas: 45,231</p>
+                        </div>
                       </div>
+                      
+                      <div className="text-center pt-4">
+                        <p className="text-sm text-muted-foreground">
+                          All transactions are cryptographically secured and immutable on blockchain
+                        </p>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <Activity className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                      <p>No transactions yet. Add products to see blockchain activity.</p>
                     </div>
-                  ))}
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -230,25 +422,95 @@ const Index = () => {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <Card className="shadow-card">
                 <CardContent className="p-6 text-center">
-                  <div className="text-3xl font-bold text-success mb-2">127</div>
-                  <div className="text-sm text-muted-foreground">Total Products Tracked</div>
+                  <div className="w-12 h-12 bg-success/10 rounded-lg mx-auto mb-3 flex items-center justify-center">
+                    <Package className="w-6 h-6 text-success" />
+                  </div>
+                  <div className="text-3xl font-bold text-success mb-2">{blockchainStats.totalProducts}</div>
+                  <div className="text-sm text-muted-foreground">Products Tracked</div>
                 </CardContent>
               </Card>
               <Card className="shadow-card">
                 <CardContent className="p-6 text-center">
-                  <div className="text-3xl font-bold text-trust mb-2">₹2.4L</div>
+                  <div className="w-12 h-12 bg-trust/10 rounded-lg mx-auto mb-3 flex items-center justify-center">
+                    <TrendingUp className="w-6 h-6 text-trust" />
+                  </div>
+                  <div className="text-3xl font-bold text-trust mb-2">₹{Math.round(blockchainStats.totalValue / 1000)}K</div>
                   <div className="text-sm text-muted-foreground">Total Value Transacted</div>
                 </CardContent>
               </Card>
               <Card className="shadow-card">
                 <CardContent className="p-6 text-center">
-                  <div className="text-3xl font-bold text-warning mb-2">98.5%</div>
+                  <div className="w-12 h-12 bg-warning/10 rounded-lg mx-auto mb-3 flex items-center justify-center">
+                    <Activity className="w-6 h-6 text-warning" />
+                  </div>
+                  <div className="text-3xl font-bold text-warning mb-2">100%</div>
                   <div className="text-sm text-muted-foreground">Supply Chain Accuracy</div>
                 </CardContent>
               </Card>
             </div>
+            
+            <Card className="shadow-card">
+              <CardHeader>
+                <CardTitle>Blockchain Network Status</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-4">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Network:</span>
+                      <span className="font-medium">{blockchainStats.networkInfo.name}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Current Block:</span>
+                      <span className="font-medium">#{blockchainStats.networkInfo.blockNumber.toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Gas Price:</span>
+                      <span className="font-medium">{blockchainStats.networkInfo.gasPrice}</span>
+                    </div>
+                  </div>
+                  <div className="space-y-4">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Total Transactions:</span>
+                      <span className="font-medium">{blockchainStats.totalTransactions}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Avg Block Time:</span>
+                      <span className="font-medium">{blockchainStats.networkInfo.avgBlockTime}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Network Status:</span>
+                      <Badge className="bg-success text-success-foreground">
+                        <div className="w-2 h-2 bg-success-foreground rounded-full mr-2"></div>
+                        Active
+                      </Badge>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           </TabsContent>
         </Tabs>
+
+        {/* Transaction Modal */}
+        <TransactionModal
+          isOpen={transactionModal.isOpen}
+          onClose={() => setTransactionModal({ ...transactionModal, isOpen: false })}
+          productId={transactionModal.productId}
+          productName={transactionModal.productName}
+          action={transactionModal.action}
+          onSubmit={handleTransactionSubmit}
+          isLoading={isProcessing}
+        />
+
+        {/* Verification Modal */}
+        <VerificationModal
+          isOpen={verificationModal.isOpen}
+          onClose={() => setVerificationModal({ ...verificationModal, isOpen: false })}
+          productId={verificationModal.productId}
+          productName={verificationModal.productName}
+          verificationData={verificationModal.data}
+        />
       </main>
     </div>
   );
