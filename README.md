@@ -1,73 +1,72 @@
-# Welcome to your Lovable project
+# AgriChain: Seed to Shelf
 
-## Project info
+Blockchain-based supply-chain tracking for agricultural produce. AgriChain follows a batch from the farmer who grew it, through the distributor and retailer, to the consumer who buys it, and records every hand-off as a tamper-proof transaction.
 
-**URL**: https://lovable.dev/projects/83533f9b-0016-4adf-9622-38b25af09e8e
+Built for the Smart India Hackathon (SIH).
 
-## How can I edit this code?
+## The problem
 
-There are several ways of editing your application.
+Once produce leaves the farm, its origin, quality grade and price history are hard to trace. Farmers rarely see what their crop finally sells for, and consumers have no way to check where it came from. AgriChain puts each step on a shared ledger, so anyone in the chain can verify the record.
 
-**Use Lovable**
+## Features
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/83533f9b-0016-4adf-9622-38b25af09e8e) and start prompting.
+- **Role-based dashboards.** Switch between Farmer, Distributor, Retailer and Consumer views.
+- **Product registration.** Farmers register a batch with its quantity, base price, harvest date, quality grade (A/B/C) and location.
+- **Supply-chain updates.** Distributors and retailers take over a batch, update its price and move it along the chain.
+- **Verification.** Consumers look up a product and see its full transaction history and current status.
+- **Transaction details.** Every step shows its transaction hash, block number and gas used.
 
-Changes made via Lovable will be committed automatically to this repo.
+## How it works
 
-**Use your preferred IDE**
+```
+Farmer ── registers batch ──▶ Distributor ── updates price ──▶ Retailer ── sells ──▶ Consumer
+   │                             │                               │                     │
+   └──────────── each step is written as a transaction on the ledger ──────────────────┘
+                                                                         verify history ◀┘
+```
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+The repository has two parts:
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+| Part | What it is |
+|---|---|
+| `src/` | React web app with the dashboards and verification flow. For the demo it runs on an in-browser blockchain simulator (`src/utils/blockchain.ts`) that comes with sample data, so no wallet or network is needed. |
+| `smart-contracts/` | `AgriChain.sol`, a Solidity contract for the same flow (register, distributor and retailer updates, delivery, verification) with a Hardhat setup for local and Sepolia deployment. |
 
-Follow these steps:
+## Tech stack
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+- **Frontend:** React 18, TypeScript, Vite, Tailwind CSS, shadcn/ui (Radix UI), React Router, TanStack Query
+- **Smart contracts:** Solidity, Hardhat, ethers.js
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+## Run it locally
 
-# Step 3: Install the necessary dependencies.
-npm i
+You need Node.js 18 or later.
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
+```bash
+git clone https://github.com/Shambhavi500/seed-to-shelf-flow.git
+cd seed-to-shelf-flow
+npm install
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+The app opens at http://localhost:8080.
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+| Command | What it does |
+|---|---|
+| `npm run dev` | Start the development server |
+| `npm run build` | Build for production into `dist/` |
+| `npm run preview` | Serve the production build |
+| `npm run lint` | Run ESLint |
 
-**Use GitHub Codespaces**
+For the contracts, see [smart-contracts/README.md](smart-contracts/README.md).
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+## Project structure
 
-## What technologies are used for this project?
-
-This project is built with:
-
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/83533f9b-0016-4adf-9622-38b25af09e8e) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/tips-tricks/custom-domain#step-by-step-guide)
+```
+src/
+  components/     Header, ProductCard, StakeholderDashboard, SupplyChainFlow,
+                  TransactionModal, VerificationModal, ui/ (shadcn components)
+  pages/          Index (main app), NotFound
+  utils/          blockchain.ts (ledger simulator and sample data)
+smart-contracts/  AgriChain.sol, deploy.js, hardhat.config.js
+public/           favicon, robots.txt
+```
